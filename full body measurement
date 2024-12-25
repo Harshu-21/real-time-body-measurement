@@ -1,0 +1,119 @@
+import cv2
+import mediapipe as mp
+import math
+import pandas as pd
+import time
+
+mp_pose = mp.solutions.pose
+pose = mp_pose.Pose()
+mp_drawing = mp.solutions.drawing_utils
+
+def calculate_distance(p1, p2):
+    return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+
+
+cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+
+cv2.namedWindow('Adjust Yourself in Frame', cv2.WINDOW_NORMAL)
+cv2.setWindowProperty('Adjust Yourself in Frame', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
+REFERENCE_WIDTH_CM = 10
+measurements = []
+
+
+start_time = time.time()
+print("Position yourself in front of the camera...")
+
+while time.time() - start_time < 5:  
+    ret, frame = cap.read()
+    if not ret:
+        break
+    cv2.putText(frame, "Position Yourself! Capturing in 5 Seconds...", (50, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+    cv2.imshow('Adjust Yourself in Frame', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cv2.destroyAllWindows()  
+
+
+ret, frame = cap.read()
+if not ret:
+    print("Error capturing the frame.")
+    cap.release()
+    exit()
+
+rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+results = pose.process(rgb_frame)
+
+if results.pose_landmarks:
+    h, w, _ = frame.shape
+    landmarks = results.pose_landmarks.landmark
+
+    
+    ref_x1, ref_y1 = 100, 100
+    ref_x2, ref_y2 = 300, 100
+    REFERENCE_WIDTH_PIXELS = abs(ref_x2 - ref_x1)
+    scale = REFERENCE_WIDTH_CM / REFERENCE_WIDTH_PIXELS
+
+    
+    left_shoulder = (int(landmarks[11].x * w), int(landmarks[11].y * h))
+    right_shoulder = (int(landmarks[12].x * w), int(landmarks[12].y * h))
+    left_hip = (int(landmarks[23].x * w), int(landmarks[23].y * h))
+    right_hip = (int(landmarks[24].x * w), int(landmarks[24].y * h))
+    left_knee = (int(landmarks[25].x * w), int(landmarks[25].y * h))
+    right_knee = (int(landmarks[26].x * w), int(landmarks[26].y * h))
+    left_ankle = (int(landmarks[27].x * w), int(landmarks[27].y * h))
+    right_ankle = (int(landmarks[28].x * w), int(landmarks[28].y * h))
+
+    
+    shoulder_width = calculate_distance(left_shoulder, right_shoulder)
+    chest_width = calculate_distance(left_shoulder, right_shoulder)  
+    hip_width = calculate_distance(left_hip, right_hip)
+    torso_length = calculate_distance(left_shoulder, left_hip)
+    left_leg_length = calculate_distance(left_hip, left_knee) + calculate_distance(left_knee, left_ankle)
+    right_leg_length = calculate_distance(right_hip, right_knee) + calculate_distance(right_knee, right_ankle)
+    average_leg_length = (left_leg_length + right_leg_length) / 2
+
+    
+    shoulder_width_cm = shoulder_width * scale
+    chest_width_cm = chest_width * scale
+    hip_width_cm = hip_width * scale
+    torso_length_cm = torso_length * scale
+    average_leg_length_cm = average_leg_length * scale
+
+    measurements.append({
+        "Shoulder Width (cm)": shoulder_width_cm,
+        "Chest Width (cm)": chest_width_cm,
+        "Hip Width (cm)": hip_width_cm,
+        "Torso Length (cm)": torso_length_cm,
+        "Leg Length (cm)": average_leg_length_cm
+    })
+
+    
+    cv2.putText(frame, f"Shoulder Width: {shoulder_width_cm:.2f} cm", (50, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(frame, f"Chest Width: {chest_width_cm:.2f} cm", (50, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(frame, f"Hip Width: {hip_width_cm:.2f} cm", (50, 150),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(frame, f"Torso Length: {torso_length_cm:.2f} cm", (50, 200),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(frame, f"Leg Length: {average_leg_length_cm:.2f} cm", (50, 250),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+    cv2.imshow('Captured Measurements', frame)
+    cv2.waitKey(5000)  
+    cv2.destroyAllWindows()
+
+
+if measurements:
+    df = pd.DataFrame(measurements)
+    df.to_excel('body_measurements.xlsx', index=False)
+    print("Measurements saved to body_measurements.xlsx")
+else:
+    print("No measurements captured.")
+
+cap.release()
